@@ -496,7 +496,7 @@ class AssetManager {
             }
         }
     }
-    
+
     class Engine {
         constructor() {
             this.entities = [];
@@ -612,12 +612,26 @@ class AssetManager {
         }
     }
     
-    
+    class Entity {
+    constructor(x, y, width, height, color) {
+        this.position = new Vector2(x, y);
+        this.width = width;
+        this.height = height;
+        this.color = color;
+    }
+
+    update(deltaTime) {
+        // Example movement logic (move right every second)
+        this.position.x += 100 * deltaTime; // Move at 100 units per second
+    }
+}
+
     // Expose Engine and other classes
     DynoEngine.Engine = Engine;
     DynoEngine.Vector2 = Vector2;
     DynoEngine.Vector3 = Vector3;
     DynoEngine.Matrix4 = Matrix4;
+    DynoEngine.Entity = Entity;
     DynoEngine.Quaternion = Quaternion;
     DynoEngine.Destroyable = Destroyable;
 
