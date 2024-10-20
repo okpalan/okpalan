@@ -30,10 +30,10 @@
     
         // Add an entity to the engine
         addEntity(entity) {
-            if (entity instanceof Tearable) {
+            if (entity instanceof Destroyable) {
                 this.entities.push(entity);
             } else {
-                console.warn('Only Tearable entities can be added to DynoEngine.');
+                console.warn('Only Destroyable entities can be added to DynoEngine.');
             }
         }
     
@@ -92,6 +92,7 @@
     }
     
     DynoEngine.Engine = Engine;
+
     //============================
     // Vector2: 2D Vector Class
     //============================
@@ -363,10 +364,10 @@
     }
   
     DynoEngine.Utils = { };
-     class TearableLifecycle {
+     class Destroyable {
         constructor() {
-            if (new.target === TearableLifecycle) {
-                throw new Error('TearableLifecycle is an abstract class and cannot be instantiated directly.');
+            if (new.target === Destroyable) {
+                throw new Error('Destroyable is an abstract class and cannot be instantiated directly.');
             }
             this.state = "initialized"; // Track state
             this.beforeHooks = [];
