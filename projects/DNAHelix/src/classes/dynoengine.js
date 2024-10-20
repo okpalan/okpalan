@@ -16,7 +16,82 @@
   
     // Core DynoEngine Object
     const DynoEngine = {};
-  
+
+    class Engine {
+        constructor() {
+            this.entities = [];  // Hold all entities
+            this.lastTime = 0;   // To track time for delta updates
+        }
+    
+        // Utility to get current time for consistent delta calculation
+        getTime() {
+            return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+        }
+    
+        // Add an entity to the engine
+        addEntity(entity) {
+            if (entity instanceof Tearable) {
+                this.entities.push(entity);
+            } else {
+                console.warn('Only Tearable entities can be added to DynoEngine.');
+            }
+        }
+    
+        // Remove an entity from the engine
+        removeEntity(entity) {
+            const index = this.entities.indexOf(entity);
+            if (index > -1) {
+                this.entities.splice(index, 1);
+            }
+        }
+    
+        // Update each entity based on deltaTime
+        update(deltaTime) {
+            this.entities.forEach(entity => {
+                if (typeof entity.update === 'function') {
+                    entity.update(deltaTime);
+                }
+            });
+        }
+    
+        // Render entities (if applicable)
+        render() {
+            this.entities.forEach(entity => {
+                if (typeof entity.render === 'function') {
+                    entity.render();
+                }
+            });
+        }
+    
+        // The main simulation loop
+        loop(currentTime) {
+            const deltaTime = (currentTime - this.lastTime) / 1000;  // Calculate delta in seconds
+            this.lastTime = currentTime;
+    
+            // Update and render entities
+            this.update(deltaTime);
+            this.render();
+    
+            // Request the next animation frame for smooth updating
+            requestAnimationFrame(this.loop.bind(this));  // Ensure 'this' context is bound
+        }
+    
+        // Start the simulation loop
+        start() {
+            this.lastTime = this.getTime();
+            requestAnimationFrame(this.loop.bind(this));  // Start the loop
+        }
+    
+        // Stop and clear entities
+        clear() {
+            this.entities.forEach(entity => {
+                entity.destroy();  // Trigger any after-hooks
+            });
+            this.entities = [];  // Clear all entities
+        }
+    }
+    
+    DynoEngine.Engine = Engine;
     //============================
     // Vector2: 2D Vector Class
     //============================
@@ -335,7 +410,6 @@
         }
     }
     
-    DynoEngine.Utils.TearableLifecycle = TearableLifecycle;
     
     // Expose public API
     DynoEngine.Vector2 = Vector2;
