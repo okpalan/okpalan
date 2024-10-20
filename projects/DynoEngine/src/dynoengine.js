@@ -60,90 +60,145 @@ class Camera {
 
     // Existing methods...
 }
-
-// Extend the Engine class to support keyboard controls
-class Engine {
-    constructor() {
-        this.entities = [];
-        this.lastTime = 0;
-
-        this.canvas = document.getElementById('dynoCanvas');
-        this.ctx = this.canvas.getContext('2d');
-
-        this.worker = new Worker('rendererWorker.js');
-        this.worker.onmessage = this.handleRenderData.bind(this);
-
-        this.camera = new Camera();
-
-        this.keys = {}; // Store currently pressed keys
-
-        // Bind event handlers
-        this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
-        this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
-        this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        this.canvas.addEventListener('wheel', this.handleZoom.bind(this));
-
-        // Keyboard event listeners
-        window.addEventListener('keydown', this.handleKeyDown.bind(this));
-        window.addEventListener('keyup', this.handleKeyUp.bind(this));
+class LRUCache {
+    constructor(limit) {
+        this.limit = limit;
+        this.cache = new Map(); // Using a Map to maintain the order of keys
     }
 
-    handleMouseDown(event) {
-        this.camera.startDragging(new Vector2(event.clientX, event.clientY));
+    get(key) {
+        if (!this.cache.has(key)) {
+            return null; // Return null if the asset is not in the cache
+        }
+        const value = this.cache.get(key);
+        // Move the accessed item to the end (most recently used)
+        this.cache.delete(key);
+        this.cache.set(key, value);
+        return value;
     }
 
-    handleMouseUp() {
-        this.camera.stopDragging();
+    set(key, value) {
+        if (this.cache.has(key)) {
+            // If the item is already in the cache, delete it
+            this.cache.delete(key);
+        } else if (this.cache.size >= this.limit) {
+            // If the cache is full, remove the least recently used item (first item)
+            this.cache.delete(this.cache.keys().next().value);
+        }
+        // Add the new item to the cache
+        this.cache.set(key, value);
     }
 
-    handleMouseMove(event) {
-        const mousePos = new Vector2(event.clientX, event.clientY);
-        this.camera.pan(mousePos);
+    has(key) {
+        return this.cache.has(key);
     }
 
-    handleKeyDown(event) {
-        this.keys[event.key] = true; // Set the key as pressed
+    delete(key) {
+        return this.cache.delete(key);
     }
 
-    handleKeyUp(event) {
-        this.keys[event.key] = false; // Reset the key as released
-    }
-
-    // The main simulation loop
-    loop(currentTime) {
-        const deltaTime = (currentTime - this.lastTime) / 1000; // Calculate delta in seconds
-        this.lastTime = currentTime;
-
-        // Update camera position based on keyboard input
-        this.camera.panWithKeyboard(this.keys);
-
-        // Update and render entities
-        this.update(deltaTime);
-        this.render();
-
-        // Request the next animation frame for smooth updating
-        requestAnimationFrame(this.loop.bind(this)); // Ensure 'this' context is bound
-    }
-
-    // ... [rest of the Engine class methods remain unchanged]
-
-    render() {
-        this.worker.postMessage({ entities: this.entities, camera: this.camera });
-    }
-
-    // Handle rendering data from the worker
-    handleRenderData(e) {
-        const renderData = e.data;
-
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-        renderData.entities.forEach(data => {
-            const screenCoords = this.camera.toScreenCoords(data.x, data.y);
-            this.ctx.fillStyle = data.color;
-            this.ctx.fillRect(screenCoords.x, screenCoords.y, data.width * this.camera.zoom, data.height * this.camera.zoom);
-        });
+    clear() {
+        this.cache.clear();
     }
 }
+
+class AssetManager {
+    constructor(cacheLimit = 10) {
+        this.cache = new LRUCache(cacheLimit); // Initialize the LRU cache
+        this.loadingPromises = {};
+        this.references = {}; // Track references to loaded assets
+    }
+
+    loadAsset(type, path) {
+        if (this.cache.has(path)) {
+            // If the asset is in the cache, increment reference count
+            this.references[path] = (this.references[path] || 0) + 1;
+            return Promise.resolve(this.cache.get(path));
+        }
+
+        if (this.loadingPromises[path]) {
+            return this.loadingPromises[path];
+        }
+
+        let loadPromise;
+
+        switch (type) {
+            case 'image':
+                loadPromise = this.loadImage(path);
+                break;
+            case 'audio':
+                loadPromise = this.loadAudio(path);
+                break;
+            case 'json':
+                loadPromise = this.loadJSON(path);
+                break;
+            default:
+                throw new Error(`Unsupported asset type: ${type}`);
+        }
+
+        this.loadingPromises[path] = loadPromise;
+
+        return loadPromise.then(asset => {
+            this.cache.set(path, asset); // Add asset to the LRU cache
+            this.references[path] = 1; // Initialize reference count
+            delete this.loadingPromises[path]; // Clean up loading promise
+            return asset;
+        });
+    }
+
+    unloadAsset(path) {
+        if (this.cache.has(path)) {
+            this.references[path] = (this.references[path] || 0) - 1;
+            if (this.references[path] <= 0) {
+                this.cache.delete(path); // Remove asset from cache
+                delete this.references[path]; // Remove reference count
+                console.log(`Asset unloaded: ${path}`);
+            }
+        } else {
+            console.warn(`Attempted to unload non-loaded asset: ${path}`);
+        }
+    }
+
+    // Load image
+    loadImage(path) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.src = path;
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error(`Failed to load image: ${path}`));
+        });
+    }
+
+    // Load audio
+    loadAudio(path) {
+        return new Promise((resolve, reject) => {
+            const audio = new Audio();
+            audio.src = path;
+            audio.onloadeddata = () => resolve(audio);
+            audio.onerror = () => reject(new Error(`Failed to load audio: ${path}`));
+        });
+    }
+
+    // Load JSON
+    loadJSON(path) {
+        return fetch(path)
+            .then(response => {
+                if (!response.ok) throw new Error(`Failed to load JSON: ${path}`);
+                return response.json();
+            })
+            .then(data => {
+                this.cache.set(path, data); // Add data to the LRU cache
+                this.references[path] = 1; // Initialize reference count
+                return data;
+            });
+    }
+
+    // Get asset
+    getAsset(path) {
+        return this.cache.get(path);
+    }
+}
+
 
 
     //============================
@@ -396,12 +451,168 @@ class Engine {
     // Destroyable Base Class
     //============================
     class Destroyable {
-        destroy() {
-            // Clean up logic, if necessary
-            console.log('Entity destroyed');
+        constructor() {
+            if (new.target === Destroyable) {
+                throw new Error('Destroyable is an abstract class and cannot be instantiated directly.');
+            }
+            this.state = "initialized"; // Track state
+            this.beforeHooks = [];
+            this.afterHooks = [];
+        }
+    
+        // Register a 'before' hook, returning the instance to allow chaining
+        before(callback) {
+            if (this.state === "initialized") {
+                this.beforeHooks.push(callback);
+            }
+            return this; // Chainable
+        }
+    
+        // Register an 'after' hook, returning the instance to allow chaining
+        after(callback) {
+            if (this.state === "initialized") {
+                this.afterHooks.push(callback);
+            }
+            return this; // Chainable
+        }
+    
+        // Initialize the object and run 'before' hooks
+        initialize(...args) {
+            if (this.state === "initialized") {
+                this.beforeHooks.forEach(hook => hook(...args));  // Execute all 'before' hooks
+                this.beforeHooks = [];  // Clear the before hooks
+                this.state = "constructed"; // Move to constructed state
+                console.log("Initialized");
+            }
+        }
+    
+        // Tear down and run 'after' hooks
+        destroy(...args) {
+            if (this.state === "constructed") {
+                this.afterHooks.forEach(hook => hook(...args));  // Execute all 'after' hooks
+                this.afterHooks = [];  // Clear the after hooks
+                this.state = "deleted";  // Set state to deleted
+                console.log("Destroyed");
+            }
         }
     }
-
+    
+    class Engine {
+        constructor() {
+            this.entities = [];
+            this.lastTime = 0;
+    
+            this.canvas = document.getElementById('dynoCanvas');
+            this.ctx = this.canvas.getContext('2d');
+    
+            this.worker = new Worker('rendererWorker.js');
+            this.worker.onmessage = this.handleRenderData.bind(this);
+    
+            this.camera = new Camera();
+            this.keys = {}; // Store currently pressed keys
+    
+            // Bind event handlers
+            this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+            this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+            this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
+            this.canvas.addEventListener('wheel', this.handleZoom.bind(this));
+    
+            // Keyboard event listeners
+            window.addEventListener('keydown', this.handleKeyDown.bind(this));
+            window.addEventListener('keyup', this.handleKeyUp.bind(this));
+        }
+    
+        handleMouseDown(event) {
+            this.camera.startDragging(new Vector2(event.clientX, event.clientY));
+        }
+    
+        handleMouseUp() {
+            this.camera.stopDragging();
+        }
+    
+        handleMouseMove(event) {
+            const mousePos = new Vector2(event.clientX, event.clientY);
+            this.camera.pan(mousePos);
+        }
+    
+        handleKeyDown(event) {
+            this.keys[event.key] = true; // Set the key as pressed
+        }
+    
+        handleKeyUp(event) {
+            this.keys[event.key] = false; // Reset the key as released
+        }
+    
+        // Main simulation loop
+        loop(currentTime) {
+            const deltaTime = (currentTime - this.lastTime) / 1000; // Calculate delta in seconds
+            this.lastTime = currentTime;
+    
+            // Update camera position based on keyboard input
+            this.camera.panWithKeyboard(this.keys);
+    
+            // Update and render entities
+            this.update(deltaTime);
+            this.render();
+    
+            // Request the next animation frame for smooth updating
+            requestAnimationFrame(this.loop.bind(this)); // Ensure 'this' context is bound
+        }
+    
+        // Update all entities in the engine
+        update(deltaTime) {
+            for (const entity of this.entities) {
+                if (entity.update) {
+                    entity.update(deltaTime); // Call entity's update method
+                }
+            }
+        }
+    
+        render() {
+            // Send entities and camera info to the worker for rendering
+            this.worker.postMessage({ entities: this.entities, camera: this.camera });
+        }
+    
+        // Handle rendering data from the worker
+        handleRenderData(e) {
+            const renderData = e.data;
+    
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    
+            renderData.entities.forEach(data => {
+                const screenCoords = this.camera.toScreenCoords(data.x, data.y);
+                this.ctx.fillStyle = data.color;
+                this.ctx.fillRect(screenCoords.x, screenCoords.y, data.width * this.camera.zoom, data.height * this.camera.zoom);
+            });
+        }
+    
+        // Optional method to add entities to the engine
+        addEntity(entity) {
+            this.entities.push(entity);
+        }
+    
+        // Optional method to remove entities from the engine
+        removeEntity(entity) {
+            const index = this.entities.indexOf(entity);
+            if (index > -1) {
+                this.entities.splice(index, 1);
+            }
+        }
+    
+        // Optional method for handling zoom (if needed)
+        handleZoom(event) {
+            const zoomSpeed = 0.1;
+            if (event.deltaY < 0) {
+                this.camera.zoom += zoomSpeed; // Zoom in
+            } else {
+                this.camera.zoom -= zoomSpeed; // Zoom out
+            }
+            this.camera.zoom = Math.max(0.1, this.camera.zoom); // Prevent zooming out too far
+            event.preventDefault(); // Prevent default scrolling behavior
+        }
+    }
+    
+    
     // Expose Engine and other classes
     DynoEngine.Engine = Engine;
     DynoEngine.Vector2 = Vector2;
